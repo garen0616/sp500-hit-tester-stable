@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>S&P 500 命中率測試器（FMP /stable）</title>
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;margin:24px;}
+      .row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+      label{min-width:7rem}
+      input,select,textarea{padding:.35rem .5rem}
+      textarea{width:100%;min-height:80px}
+      button{padding:.55rem 1rem}
+      .muted{color:#6c757d}
+      table{border-collapse:collapse;width:100%;margin-top:14px}
+      th,td{border:1px solid #eee;padding:.4rem .5rem;text-align:left}
+      th{background:#fafafa}
+      .badge{display:inline-block;padding:.2rem .5rem;border-radius:.25rem;font-size:.8rem}
+      .good{background:#e7f7ee;color:#0a8a4a}
+      .bad{background:#fdecea;color:#b9382a}
+      fieldset{border:1px solid #e5e7eb;padding:12px;margin-bottom:10px;border-radius:8px}
+      legend{padding:0 6px;color:#334155}
+      .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    </style>
+  </head>
+  <body>
+    <h2>S&P 500 命中率測試器（FMP /stable 版）</h2>
+
+    <fieldset>
+      <legend>回測期間</legend>
+      <div class="row">
+        <label>開始日期</label><input type="date" id="startDate" value="2024-01-01">
+        <label>結束日期</label><input type="date" id="endDate" value="2025-01-01">
+        <label>間隔</label>
+        <select id="interval">
+          <option value="week">週</option>
+          <option value="month" selected>月</option>
+          <option value="quarter">季</option>
+        </select>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>選股條件</legend>
+      <div class="grid">
+        <div>
+          <label>類型</label>
+          <select id="selType">
+            <option value="return">區間漲幅 Top N</option>
+            <option value="mcap_latest">市值 Top N（最新）</option>
+            <option value="mcap_asof">市值 Top N（指定日期）</option>
+            <option value="manual">手動清單（逗號/空白分隔）</option>
+          </select>
+        </div>
+        <div>
+          <label>Top N</label>
+          <input type="number" id="topN" min="1" max="500" value="50">
+        </div>
+        <div id="rangeBox">
+          <label>漲幅區間</label>
+          <div class="row"><input type="date" id="retFrom" value="2024-01-01">→<input type="date" id="retTo" value="2024-12-31"></div>
+        </div>
+        <div id="asofBox" style="display:none">
+          <label>市值日期</label>
+          <input type="date" id="asOf" value="2025-12-31">
+        </div>
+      </div>
+      <div class="row">
+        <label>Sector 篩選（可多選）</label>
+        <select id="sectors" multiple size="5" style="min-width:260px"></select>
+      </div>
+      <div class="row" id="manualBox" style="display:none">
+        <label>手動股票</label>
+        <textarea id="manualTickers" placeholder="例如：AAPL, MSFT, NVDA"></textarea>
+      </div>
+    </fieldset>
+
+    <div class="row" style="gap:8px;align-items:center">
+      <button id="runBtn">開始測試</button>
+      <button id="stopBtn" disabled>停止</button>
+      <span class="muted">（⚠️ 此操作會大量呼叫 FMP 與 LLM，請先在後端與 analyzer 設定金鑰）</span>
+    </div>
+
+    <div id="log" class="muted" style="margin-top:8px"></div>
+    <div id="usageStats" class="muted" style="margin-top:4px"></div>
+    <div id="overall"></div>
+    <div id="table"></div>
+
+    <script>
+      const $ = (s)=>document.querySelector(s);
+      const sectorsEl = $("#sectors");
+      const selTypeEl = $("#selType");
+      const manualBox = $("#manualBox");
+      const rangeBox = $("#rangeBox");
+      const asofBox = $("#asofBox");
+      const runBtn = $("#runBtn");
+      const stopBtn = $("#stopBtn");
+      const logEl = $("#log");
+      const overallEl = $("#overall");
+      const tableEl = $("#table");
+      const usageEl = $("#usageStats");
+      const nf = new Intl.NumberFormat("en-US");
+      const costFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+      let isRunning = false;
+      let stopInFlight = false;
+
+      selTypeEl.addEventListener("change", ()=>{
+        const t = selTypeEl.value;
+        manualBox.style.display = (t==="manual")?"block":"none";
+        rangeBox.style.display = (t==="return")?"block":"none";
+        asofBox.style.display = (t==="mcap_asof")?"block":"none";
+      });
+
+      function setRunning(running){
+        isRunning = running;
+        runBtn.disabled = running;
+        stopBtn.disabled = !running;
+        if(!running) stopInFlight = false;
+      }
+
+      function renderUsage(usage){
+        if(!usage){ usageEl.textContent = ""; return; }
+        const prompt = Number(usage.prompt || 0);
+        const completion = Number(usage.completion || 0);
+        const total = Number.isFinite(usage.total) ? usage.total : (prompt + completion);
+        const cost = Number.isFinite(usage.cost) ? usage.cost : null;
+        const duration = Number.isFinite(usage.durationMs) ? usage.durationMs / 1000 : null;
+        const parts = [
+          `Token 使用：Prompt ${nf.format(prompt)} + Completion ${nf.format(completion)} = ${nf.format(total)} tokens`
+        ];
+        if(cost != null) parts.push(`成本 $${costFmt.format(cost)}`);
+        parts.push(`Analyzer 呼叫 ${nf.format(usage.calls || 0)} 次`);
+        if(duration != null) parts.push(`耗時 ${duration.toFixed(1)} 秒`);
+        usageEl.textContent = parts.join(" ｜ ");
+      }
+
+      function renderResults(j){
+        const o = j.overall || {};
+        const hr = o.hitRate!=null ? (o.hitRate*100).toFixed(2)+"%" : "—";
+        overallEl.innerHTML = `
+          <h3>總命中率 <span class="badge ${o.hitRate>=.5?"good":"bad"}">${hr}</span></h3>
+          <div class="muted">Actionable=${o.actionable} | Buy命中率=${o.buyHitRate!=null?(o.buyHitRate*100).toFixed(1)+"%":"—"} | Sell命中率=${o.sellHitRate!=null?(o.sellHitRate*100).toFixed(1)+"%":"—"}</div>
+          <p><a href="${j.downloadUrl}">⬇️ 下載 Excel</a></p>
+        `;
+        const rows = j.summary || [];
+        const trs = rows.map(r=>`
+          <tr>
+            <td>${r.ticker}</td>
+            <td>${r.actionable}</td>
+            <td>${r.hits}</td>
+            <td>${r.hitRate!=null?(r.hitRate*100).toFixed(1)+"%":"—"}</td>
+            <td>${r.buy}</td>
+            <td>${r.buyHits}</td>
+            <td>${r.buyHitRate!=null?(r.buyHitRate*100).toFixed(1)+"%":"—"}</td>
+            <td>${r.sell}</td>
+            <td>${r.sellHits}</td>
+            <td>${r.sellHitRate!=null?(r.sellHitRate*100).toFixed(1)+"%":"—"}</td>
+          </tr>`).join("");
+        tableEl.innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th><th>Actionable</th><th>Hits</th><th>Hit Rate</th>
+                <th>Buy</th><th>Buy Hits</th><th>Buy Hit Rate</th>
+                <th>Sell</th><th>Sell Hits</th><th>Sell Hit Rate</th>
+              </tr>
+            </thead><tbody>${trs}</tbody>
+          </table>`;
+      }
+
+      async function loadMeta(){
+        const r = await fetch("/api/meta"); const j = await r.json();
+        (j.sectors||[]).forEach(s=>{
+          const opt = document.createElement("option");
+          opt.value = s; opt.textContent = s;
+          sectorsEl.appendChild(opt);
+        });
+      }
+      loadMeta();
+
+      runBtn.addEventListener("click", async ()=>{
+        if(isRunning) return;
+        setRunning(true);
+        logEl.textContent = "⏳ 測試中…";
+        usageEl.textContent = "";
+        overallEl.innerHTML = ""; tableEl.innerHTML = "";
+        const body = {
+          startDate: $("#startDate").value,
+          endDate: $("#endDate").value,
+          interval: $("#interval").value,
+          selector: {
+            type: $("#selType").value,
+            topN: Number($("#topN").value),
+            from: $("#retFrom").value,
+            to: $("#retTo").value,
+            asOf: $("#asOf").value,
+            sectors: Array.from(sectorsEl.selectedOptions).map(o=>o.value),
+            tickers: $("#manualTickers").value
+          }
+        };
+        try{
+          const res = await fetch("/api/run-test",{
+            method:"POST", headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify(body)
+          });
+          let j = {};
+          try{ j = await res.json(); }catch{}
+          if (!res.ok){
+            logEl.textContent = j.cancelled ? "🛑 已強制停止" : ("❌ " + (j?.error||"Unknown error"));
+            renderUsage(j?.tokenUsage);
+            return;
+          }
+          logEl.textContent = "✅ 完成";
+          renderUsage(j.tokenUsage);
+          renderResults(j);
+        }catch(err){
+          logEl.textContent = "❌ " + err.message;
+        }finally{
+          setRunning(false);
+        }
+      });
+
+      stopBtn.addEventListener("click", async ()=>{
+        if(!isRunning || stopInFlight) return;
+        stopInFlight = true;
+        logEl.textContent = "🛑 送出停止請求…";
+        try{
+          const res = await fetch("/api/run-test/stop", { method:"POST" });
+          const j = await res.json().catch(()=>({}));
+          if(j.cancelled){
+            logEl.textContent = "🛑 正在停止…";
+          }else{
+            logEl.textContent = "ℹ️ 當前沒有執行中的任務";
+            stopInFlight = false;
+          }
+        }catch(err){
+          logEl.textContent = "⚠️ 停止失敗：" + err.message;
+          stopInFlight = false;
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "sp500-hit-tester-stable",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n WEB,ANALYZER -c auto \"cd web && node server.js\" \"cd analyzer && npm run dev\"",
+    "start": "concurrently -k -n WEB,ANALYZER -c auto \"cd web && node server.js\" \"cd analyzer && PORT=${ANALYZER_PORT:-5001} node server.js\""
+  },
+  "devDependencies": { "concurrently": "^9.0.1" }
+}

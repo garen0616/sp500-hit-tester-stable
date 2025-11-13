@@ -1,0 +1,28 @@
+{
+  "name": "us-equity-analyzer-pro",
+  "version": "2.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env server.js",
+    "start": "node server.js",
+    "clean:data": "node scripts/cleanData.js",
+    "start:clean": "npm run clean:data && npm run start",
+    "test:self": "node scripts/selftest.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "better-sqlite3": "^12.4.1",
+    "cheerio": "^1.1.2",
+    "dayjs": "^1.11.13",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "jsonrepair": "^3.13.1",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2",
+    "papaparse": "^5.4.1",
+    "qs": "^6.13.0",
+    "turndown": "^7.2.0",
+    "xlsx": "^0.18.5"
+  }
+}

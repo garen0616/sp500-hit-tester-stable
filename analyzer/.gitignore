@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+cache/
+data/
+coverage/
+dist/
+tmp/
+*.swp
+.DS_Store
+output/

@@ -1,0 +1,1240 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>美股個股分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+<style>
+:root{--bg:#0b0e14;--card:#121826;--muted:#94a3b8;--text:#e2e8f0;--accent:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,'Noto Sans',sans-serif;color:var(--text);padding-bottom:90px}
+.wrap{max-width:1200px;margin:40px auto;padding:0 16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+h1{font-size:28px;margin:0 0 12px}
+label{display:block;margin:8px 0 6px;color:var(--muted)}
+input,button,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:16px}
+input[type="date"]{-webkit-appearance:none;color:var(--text);}
+input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1);}
+option{background:#0f172a;color:var(--text);}
+button{cursor:pointer;background:linear-gradient(135deg,#2563eb,#06b6d4);border:none}
+button:disabled{opacity:.6;cursor:not-allowed}
+.row{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr)) 150px;gap:12px}
+.muted{color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:12px}
+.kpi{background:#0f172a;border:1px solid #1f2937;border-radius:12px;padding:12px}
+.kpi h3{margin:0;font-size:13px;color:var(--muted)}
+.kpi p{margin:6px 0 0;font-size:20px;font-weight:700}
+.kpi .kpi-hint{display:block;margin-top:4px;font-size:12px;color:var(--muted)}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:12px;color:#cbd5e1}
+canvas{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10px}
+.status-pill{margin-top:14px;display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;background:#0f172a;border:1px solid #1f2937;font-size:14px;color:var(--muted)}
+.status-pill::before{content:'';width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.status-pill[data-state="running"]{color:#bfdbfe;border-color:#2563eb}
+.status-pill[data-state="running"]::before{background:#60a5fa;animation:pulse 1s ease-in-out infinite}
+.status-pill[data-state="done"]{color:var(--ok);border-color:var(--ok)}
+.status-pill[data-state="done"]::before{background:var(--ok);animation:none}
+.status-pill[data-state="error"]{color:var(--bad);border-color:var(--bad)}
+.status-pill[data-state="error"]::before{background:var(--bad)}
+.status-pill[data-state="idle"]::before{background:var(--muted)}
+.status-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.ghost-btn{background:transparent;border:1px solid #334155;color:var(--muted);padding:8px 16px;border-radius:999px;font-size:14px;width:auto;display:inline-flex;align-items:center;justify-content:center;margin-top:2px}
+#stop{display:none}
+.ghost-btn:hover{border-color:#475569;color:#e2e8f0}
+.batch-running{display:none;align-items:center;gap:8px;color:#bfdbfe;font-size:14px}
+.batch-dot{width:12px;height:12px;border-radius:50%;background:#60a5fa;animation:pulse-ball .8s ease-in-out infinite}
+.timeline{display:grid;gap:10px}
+.ti{border:1px solid #1f2937;border-radius:12px;padding:12px;background:#0f172a}
+.ti h4{margin:0 0 8px}
+.ti .meta{font-size:13px;color:var(--muted)}
+.summary{line-height:1.7}
+@media(max-width:1000px){.grid,.row,.kpis{grid-template-columns:1fr}}
+@keyframes pulse{0%{transform:scale(.7);opacity:.7}50%{transform:scale(1.3);opacity:1}100%{transform:scale(.7);opacity:.7}}
+@keyframes pulse-ball{0%{transform:translateY(0)}50%{transform:translateY(-5px)}100%{transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>美股個股分析</h1>
+  <p class="muted">輸入股票代號與日期（預設使用 OpenAI gpt-5，可切換為快速/僅快取模式），系統會優先以 FMP 快取現價與歷史價，再結合 SEC 財報、FMP+Finnhub 新聞情緒、動能/趨勢與體質評分，輸出 ChatGPT 總結、重大重點與批次報表。</p>
+  <div class="card">
+    <div class="row">
+      <div><label>Ticker</label><input id="t" value="NVDA" placeholder="NVDA"/></div>
+      <div><label>Date</label><input id="d" type="date"/></div>
+      <div>
+        <label>LLM 模型</label>
+        <select id="model">
+          <option value="auto">自動（建議）</option>
+          <option value="gpt-5">gpt-5（完整）</option>
+          <option value="gpt-4o-mini">gpt-4o-mini（快速/省成本）</option>
+        </select>
+      </div>
+      <div>
+        <label>模式</label>
+        <select id="mode">
+          <option value="full">完整分析</option>
+          <option value="cached-only">僅快取（無快取則返回錯誤）</option>
+          <option value="metrics-only">只整合資料（不呼叫 LLM）</option>
+        </select>
+      </div>
+      <div style="align-self:end"><button id="go">分析</button></div>
+      <div style="grid-column:1 / -1">
+        <div class="status-row">
+          <div id="status" class="status-pill" data-state="idle">待命中，請輸入條件後開始分析。</div>
+          <button id="stop" class="ghost-btn">停止</button>
+          <button id="refreshCache" class="ghost-btn" disabled>重新抓取</button>
+        </div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><h3>現價</h3><p id="px">-</p></div>
+      <div class="kpi"><h3>ChatGPT 總結目標價</h3><p id="ptRange">-</p></div>
+      <div class="kpi"><h3>建議</h3><p id="rating">-</p></div>
+      <div class="kpi"><h3>類型</h3><p id="segment">-</p></div>
+      <div class="kpi"><h3>個股體質分數</h3><p id="qualityScore">-</p></div>
+      <div class="kpi"><h3>新聞情緒</h3><p id="newsSentiment">-</p></div>
+      <div class="kpi"><h3>動能評分</h3><p id="momentumScore">-</p></div>
+      <div class="kpi"><h3>趨勢走向</h3><p id="trendFlag">-</p></div>
+      <div class="kpi"><h3>近月共識價</h3><p id="ptRecentMonth">-</p></div>
+      <div class="kpi"><h3>近季共識價</h3><p id="ptRecentQuarter">-</p></div>
+      <div class="kpi"><h3>評級趨勢</h3><p id="ratingTrendKpi">-</p><small class="kpi-hint">A=上調／B=持平／C=下調</small></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">ChatGPT 總結與結論</h3>
+    <div id="consensus" class="summary muted">尚無資料</div>
+    <div id="decision" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">財報時間線與重點摘要</h3>
+    <div id="timeline" class="timeline"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">個股體質詳解</h3>
+    <div id="profileSummary" class="summary muted">尚無資料</div>
+    <div id="profileDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">動能與資金動向</h3>
+    <div id="momentumSummary" class="summary muted">尚無動能資料</div>
+    <div id="momentumDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">新聞情緒與摘要</h3>
+    <div id="newsSummary" class="summary muted">尚無新聞</div>
+    <div id="newsArticles" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">宏觀觀察</h3>
+    <div id="macroSummary" class="summary muted">尚無宏觀資料</div>
+    <div id="macroDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">分析師概況</h3>
+    <div id="analystSummary" class="summary muted">尚無分析師資料</div>
+    <div id="analystDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">機構持股（13F）</h3>
+    <div id="instSummary" class="summary muted">尚無資料</div>
+    <div id="instDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">Earnings Call 摘要</h3>
+    <div id="callSummary" class="summary muted">尚無資料</div>
+    <div id="callDetail" class="summary" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">分析紀錄</h3>
+    <div id="historyList" class="summary muted">尚無分析紀錄</div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">批次分析</h3>
+    <div class="summary muted" style="margin-bottom:12px">
+      利用下方工作列上傳 Excel/CSV（第一欄 ticker、第二欄 date，舊版第三欄 model 可留空），系統會逐行呼叫分析並下載包含現價、ChatGPT 目標價、建議、類型、體質分數、新聞情緒、動能分數、趨勢燈號、13F 信號與 Earnings Call 摘要的 CSV。
+    </div>
+    <div class="summary muted">
+      <strong>步驟：</strong><br/>
+      1. 按「選擇 Excel」並選取檔案。<br/>
+      2. 上傳後工作列會變成跑動球並顯示「批次分析中」。<br/>
+      3. 完成後自動觸發下載，並可在 JSON 區查看完整結果。
+    </div>
+    <div class="batch-card-action" style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="batchFile" accept=".xlsx,.xls,.csv" hidden>
+      <div style="flex:1;min-width:220px;max-width:280px">
+        <label class="muted" style="font-size:13px;display:block;margin-bottom:4px">批次模式</label>
+        <select id="batchMode">
+          <option value="full">完整分析（含 LLM）</option>
+          <option value="cached-only">僅使用現有快取</option>
+          <option value="metrics-only">只輸出原始資料（無 LLM）</option>
+        </select>
+      </div>
+      <button id="batchCardBtn">選擇 Excel</button>
+      <div id="batchRunning" class="batch-running">
+        <div class="batch-dot"></div>
+        <span>批次分析中，請稍後…</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 style="margin:0 0 8px">詳細 JSON（除錯用）</h3>
+    <pre id="out">尚未查詢</pre>
+  </div>
+</div>
+
+<script>
+function clamp(x){ return Math.max(0, Math.min(1, x)); }
+function n(x, d=2){ const v=Number(x); return Number.isFinite(v)? v.toFixed(d):'-'; }
+function toNum(x){ const v=Number(x); return Number.isFinite(v)? v:null; }
+const SAFE_URL_RE = /^https?:\/\//i;
+
+function safeUrl(url){
+  return SAFE_URL_RE.test(url || '') ? url : '#';
+}
+
+function clearChildren(el){
+  if(!el) return;
+  while(el.firstChild){
+    el.removeChild(el.firstChild);
+  }
+}
+
+function appendLine(el, text, className){
+  if(!el || !text) return;
+  const div = document.createElement('div');
+  if(className) div.className = className;
+  div.textContent = text;
+  el.appendChild(div);
+}
+
+function ensureTargets(pt, current){
+  let hi = toNum(pt?.targetHigh), lo = toNum(pt?.targetLow), mean = toNum(pt?.targetMean ?? pt?.targetMedian);
+  const cur = toNum(current);
+  if(mean!=null){
+    if(hi==null) hi = mean * 1.15;
+    if(lo==null) lo = mean * 0.85;
+  }
+  if(hi!=null && lo==null) lo = hi/1.2;
+  if(lo!=null && hi==null) hi = lo*1.2;
+  if(cur!=null){
+    if(hi!=null && cur>hi) hi = cur*1.05;
+    if(lo!=null && cur<lo) lo = cur*0.95;
+  }
+  return {hi, lo, mean, cur};
+}
+
+function formatNewsDate(raw){
+  if(!raw) return '';
+  let iso = raw;
+  const match = /^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z$/i.exec(raw);
+  if(match){
+    iso = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`;
+  }
+  const parsed = dayjs(iso);
+  return parsed.isValid() ? parsed.format('YYYY/MM/DD') : '';
+}
+
+function formatUsageLine(usage){
+  if(!usage) return '';
+  const prompt = usage.prompt_tokens ?? usage.promptTokens;
+  const completion = usage.completion_tokens ?? usage.completionTokens;
+  const totalCost = usage.total_cost ?? usage.totalCost;
+  const tokensLabel = Number.isFinite(prompt) && Number.isFinite(completion)
+    ? `${prompt}+${completion} tokens`
+    : '';
+  const costLabel = Number.isFinite(totalCost)
+    ? `≈ $${Number(totalCost).toFixed(4)}`
+    : '';
+  return [tokensLabel, costLabel].filter(Boolean).join(' ');
+}
+
+function formatPriceMeta(meta){
+  if(!meta?.value) return null;
+  const map = {
+    'fmp_quote':'即時價（FMP）',
+    'fmp_historical':'歷史收盤（FMP）',
+    'finnhub_candle':'歷史收盤（Finnhub）',
+    'alphavantage_daily':'歷史收盤（AlphaVantage）',
+    'yahoo_chart':'歷史收盤（Yahoo）',
+    'yahoo_quote':'即時價（Yahoo）',
+    'real-time':'即時價',
+    'real-time_fallback':'即時價（備援）'
+  };
+  const label = map[meta.source] || (meta.kind === 'historical' ? '歷史收盤' : '即時價');
+  const dateLabel = meta.as_of ? ` ${meta.as_of}` : '';
+  return `${label}${dateLabel}`;
+}
+
+function formatPriceTargetSource(pt){
+  if(!pt) return '';
+  if(pt.source === 'unavailable' || pt.error){
+    return '未取得';
+  }
+  const map = {
+    'fmp':'FMP',
+    'yahoo':'Yahoo Finance'
+  };
+  return map[pt.source] || (pt.source || '');
+}
+
+function formatSegment(profile){
+  if(!profile) return '-';
+  if(profile.segment_label) return profile.segment_label;
+  const map = { large_cap:'大型股', small_cap:'小型股' };
+  return map[profile.segment] || profile.segment || '-';
+}
+
+function formatScore(score){
+  const num = toNum(score);
+  return Number.isFinite(num) ? `${num.toFixed(0)}/100` : '-';
+}
+
+function formatPct(value){
+  if(value==null || Number.isNaN(value)) return '-';
+  return `${(value*100).toFixed(1)}%`;
+}
+
+function formatMillions(value){
+  const num = Number(value);
+  if(!Number.isFinite(num)) return '-';
+  const abs = Math.abs(num);
+  if(abs >= 1_000_000_000) return `${(num/1_000_000_000).toFixed(1)}B`;
+  if(abs >= 1_000_000) return `${(num/1_000_000).toFixed(1)}M`;
+  if(abs >= 1000) return `${(num/1000).toFixed(1)}K`;
+  return num.toFixed(0);
+}
+
+function formatYield(value){
+  const num = toNum(value);
+  return Number.isFinite(num) ? `${num.toFixed(2)}%` : '-';
+}
+
+function formatDeltaPercent(value){
+  const num = toNum(value);
+  if(!Number.isFinite(num)) return '-';
+  const scaled = Math.abs(num) <= 1 ? num * 100 : num;
+  const prefix = scaled > 0 ? '+' : '';
+  return `${prefix}${scaled.toFixed(2)}%`;
+}
+
+function formatSignedDollar(value){
+  const num = toNum(value);
+  if(!Number.isFinite(num)) return '';
+  const prefix = num > 0 ? '+' : '';
+  return `${prefix}$${Math.abs(num).toFixed(2)}`;
+}
+
+function formatUsd(value, digits=2){
+  const num = toNum(value);
+  return Number.isFinite(num) ? `$${num.toFixed(digits)}` : '-';
+}
+
+function formatEstimatePair(snapshot){
+  if(!snapshot) return '-';
+  const eps = toNum(snapshot.eps_avg);
+  const rev = toNum(snapshot.revenue_avg);
+  const epsLabel = Number.isFinite(eps) ? eps.toFixed(2) : '-';
+  const revLabel = Number.isFinite(rev) ? formatMillions(rev) : '-';
+  return `EPS ${epsLabel} / Rev ${revLabel}`;
+}
+
+function formatGrowthLabel(value){
+  const num = toNum(value);
+  if(!Number.isFinite(num)) return '';
+  return `${(num*100).toFixed(1)}%`;
+}
+
+const PRICE_TARGET_SAMPLE_THRESHOLD = 3;
+
+function ensurePriceTargetConfidence(targets){
+  if(!targets) return null;
+  if(targets.confidence){
+    return targets;
+  }
+  const counts = [
+    Number(targets.month_count) || 0,
+    Number(targets.quarter_count) || 0,
+    Number(targets.year_count) || 0
+  ];
+  const hasSamples = counts.some(count=>count >= PRICE_TARGET_SAMPLE_THRESHOLD);
+  const normalized = { ...targets };
+  normalized.confidence = hasSamples ? 'high' : 'low';
+  if(!hasSamples){
+    normalized.recent_avg = null;
+  }
+  return normalized;
+}
+
+function normalizeAnalystMetrics(source){
+  if(!source) return null;
+  if(source.price_targets || source.estimates || source.rating || source.grades){
+    if(source.price_targets){
+      source.price_targets = ensurePriceTargetConfidence(source.price_targets);
+    }
+    return source;
+  }
+  const summary = source.price_target_summary || {};
+  const monthAvg = toNum(summary.last_month?.avg);
+  const quarterAvg = toNum(summary.last_quarter?.avg);
+  const yearAvg = toNum(summary.last_year?.avg);
+  const monthCount = Number(summary.last_month?.count) || 0;
+  const quarterCount = Number(summary.last_quarter?.count) || 0;
+  const yearCount = Number(summary.last_year?.count) || 0;
+  const hasSamples = count=>count >= PRICE_TARGET_SAMPLE_THRESHOLD;
+  let recentAvg = null;
+  if(hasSamples(monthCount) && monthAvg!=null){
+    recentAvg = monthAvg;
+  }else if(hasSamples(quarterCount) && quarterAvg!=null){
+    recentAvg = quarterAvg;
+  }else if(hasSamples(yearCount) && yearAvg!=null){
+    recentAvg = yearAvg;
+  }
+  const priceTargets = (summary.last_month || summary.last_quarter || summary.last_year) ? {
+    month_avg: monthAvg,
+    month_count: summary.last_month?.count ?? null,
+    quarter_avg: quarterAvg,
+    quarter_count: summary.last_quarter?.count ?? null,
+    year_avg: yearAvg,
+    year_count: summary.last_year?.count ?? null,
+    recent_avg: recentAvg,
+    confidence: recentAvg!=null ? 'high' : 'low'
+  } : null;
+  const estQuarter = Array.isArray(source.estimates?.quarterly) ? source.estimates.quarterly[0] : null;
+  const estAnnual = Array.isArray(source.estimates?.annual) ? source.estimates.annual[0] : null;
+  const estimates = (estQuarter || estAnnual) ? {
+    quarterly:{
+      period: estQuarter?.period || estQuarter?.date || null,
+      eps_avg: toNum(estQuarter?.epsAvg),
+      revenue_avg: toNum(estQuarter?.revenueAvg)
+    },
+    annual:{
+      period: estAnnual?.period || estAnnual?.date || null,
+      eps_avg: toNum(estAnnual?.epsAvg),
+      revenue_avg: toNum(estAnnual?.revenueAvg)
+    }
+  } : null;
+  const trend = source.ratings?.trend || null;
+  const rating = source.ratings ? {
+    latest: source.ratings?.snapshot?.rating || null,
+    trend,
+    trend_arrow: trend === 'up' ? '↑' : trend === 'down' ? '↓' : trend ? '→' : '',
+    score: toNum(source.ratings?.snapshot?.overallScore)
+  } : null;
+  const actions = Array.isArray(source.grades?.recent_actions) ? source.grades.recent_actions : [];
+  const upgrades = actions.filter(item=> /upgrade|raised/i.test(item.action || '')).length;
+  const downgrades = actions.filter(item=> /downgrade|lower/i.test(item.action || '')).length;
+  const grades = actions.length ? {
+    upgrades_90d: upgrades,
+    downgrades_90d: downgrades,
+    diff_90d: upgrades - downgrades,
+    consensus_label: source.grades?.consensus?.consensus || null
+  } : null;
+  if(!priceTargets && !estimates && !rating && !grades) return null;
+  return {
+    price_targets: priceTargets,
+    estimates,
+    rating,
+    grades
+  };
+}
+
+function normalizeInputDate(raw){
+  if(!raw) return '';
+  const replaced = raw.replace(/\//g,'-');
+  const direct = dayjs(replaced);
+  if(direct.isValid()) return direct.format('YYYY-MM-DD');
+  const alt = dayjs(new Date(raw));
+  if(alt.isValid()) return alt.format('YYYY-MM-DD');
+  return replaced;
+}
+
+function collectInputParams(){
+  const tickerInput = document.getElementById('t');
+  const dateInput = document.getElementById('d');
+  const ticker = (tickerInput?.value || '').trim().toUpperCase();
+  const rawDate = (dateInput?.value || '').trim();
+  const normalizedDate = normalizeInputDate(rawDate);
+  if(dateInput && rawDate && rawDate !== normalizedDate){
+    dateInput.value = normalizedDate;
+  }
+  const modelSelect = document.getElementById('model');
+  const modeSelect = document.getElementById('mode');
+  const model = (modelSelect?.value || 'auto').trim();
+  const mode = (modeSelect?.value || 'full').trim();
+  return { ticker, date: normalizedDate, model, mode };
+}
+
+function setRefreshState(state){
+  if(!refreshBtn) return;
+  if(state === 'busy'){
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = '重抓中...';
+    return;
+  }
+  refreshBtn.textContent = refreshLabel;
+  refreshBtn.disabled = state !== 'enabled';
+}
+
+function setKPIs(quote, pt, priceMeta, action, profile, news, momentum, analystMetricsRaw){
+  const last = toNum(priceMeta?.value ?? quote?.c);
+  const targets = ensureTargets(pt, last);
+  const priceLabel = last? ('$'+last.toFixed(2)) : '-';
+  const metaLabel = formatPriceMeta(priceMeta);
+  document.getElementById('px').textContent = metaLabel ? `${priceLabel}（${metaLabel}）` : priceLabel;
+  const ptSourceLabel = formatPriceTargetSource(pt);
+  const llmTarget = toNum(action?.target_price);
+  document.getElementById('ptRange').textContent = llmTarget? ('$'+llmTarget.toFixed(0)) : '-';
+  const ratingRaw = typeof action?.rating==='string' ? action.rating : '';
+  const ratingMap = { BUY:'買進', HOLD:'觀望', SELL:'賣出' };
+  const ratingKey = ratingRaw.toUpperCase();
+  const ratingDisplay = ratingMap[ratingKey] || ratingRaw || '-';
+  document.getElementById('rating').textContent = ratingDisplay;
+  document.getElementById('segment').textContent = formatSegment(profile);
+  document.getElementById('qualityScore').textContent = formatScore(profile?.score);
+  newsSentimentEl.textContent = news?.sentiment?.sentiment_label || '-';
+  momentumScoreEl.textContent = toNum(momentum?.score) != null ? Math.round(momentum.score) : '-';
+  trendFlagEl.textContent = momentum?.trend || '-';
+  const analystMetrics = normalizeAnalystMetrics(analystMetricsRaw);
+  const ptSnap = analystMetrics?.price_targets || {};
+  ptRecentMonthEl.textContent = ptSnap.month_avg!=null ? formatUsd(ptSnap.month_avg) : '-';
+  ptRecentQuarterEl.textContent = ptSnap.quarter_avg!=null ? formatUsd(ptSnap.quarter_avg) : '-';
+  const ratingLine = analystMetrics?.rating
+    ? [analystMetrics.rating.latest || '-', analystMetrics.rating.trend_arrow || ''].filter(Boolean).join(' ')
+    : '-';
+  ratingTrendKpiEl.textContent = ratingLine || '-';
+}
+
+function renderTimeline(perFiling){
+  const box = document.getElementById('timeline');
+  clearChildren(box);
+  const items = Array.isArray(perFiling) ? perFiling : [];
+  if(!items.length){
+    appendLine(box, '尚無資料', 'muted');
+    return;
+  }
+  items.forEach((f)=>{
+    const wrap = document.createElement('div');
+    wrap.className = 'ti';
+    const title = document.createElement('h4');
+    const label = f.formLabel || f.form || 'Filing';
+    const metaSpan = document.createElement('span');
+    metaSpan.className = 'meta';
+    metaSpan.textContent = f.filingDate || '';
+    title.textContent = `${label} · `;
+    title.appendChild(metaSpan);
+    wrap.appendChild(title);
+    const metaLine = document.createElement('div');
+    metaLine.className = 'meta';
+    metaLine.textContent = `報告期間：${f.reportDate || '-'}`;
+    wrap.appendChild(metaLine);
+    const summary = document.createElement('div');
+    summary.className = 'summary';
+    summary.style.marginTop = '6px';
+    summary.textContent = f.explanation || '（模型目前未提供詳細解釋）';
+    wrap.appendChild(summary);
+    box.appendChild(wrap);
+  });
+}
+
+function renderConclusion(analysis, usageFallback){
+  const cons = analysis?.consensus_view?.summary || '（尚無共識摘要）';
+  const act = analysis?.action || {};
+  const usage = analysis?.__usage || usageFallback;
+  const usageLine = formatUsageLine(usage);
+  const consensusEl = document.getElementById('consensus');
+  const decisionEl = document.getElementById('decision');
+  clearChildren(consensusEl);
+  clearChildren(decisionEl);
+  appendLine(consensusEl, cons);
+  if(usageLine){
+    appendLine(consensusEl, `LLM 用量：${usageLine}`, 'muted');
+  }
+  const ratingMap = { BUY:'買進', HOLD:'觀望', SELL:'賣出' };
+  const ratingRaw = typeof act.rating==='string' ? act.rating : '';
+  const ratingKey = ratingRaw ? ratingRaw.toUpperCase() : '';
+  const ratingDisplay = ratingMap[ratingKey] || ratingRaw || '-';
+  const llmTarget = toNum(act.target_price);
+  const stopLoss = toNum(act.stop_loss);
+  const parts = [];
+  if(ratingDisplay && ratingDisplay !== '-') parts.push(ratingDisplay);
+  if(llmTarget!=null) parts.push(`目標價 $${llmTarget.toFixed(0)}`);
+  if(stopLoss!=null) parts.push(`止損 $${stopLoss.toFixed(0)}`);
+  appendLine(decisionEl, parts.length ? parts.join(' · ') : '尚無建議');
+  if(act.rationale){
+    appendLine(decisionEl, act.rationale, 'muted');
+  }
+}
+
+function renderMomentum(momentum){
+  clearChildren(momentumSummaryEl);
+  clearChildren(momentumDetailEl);
+  if(!momentum){
+    appendLine(momentumSummaryEl, '尚無動能資料', 'muted');
+    return;
+  }
+  const scoreText = toNum(momentum.score)!=null ? `${Math.round(momentum.score)}` : '-';
+  const trendText = momentum.trend || '中性';
+  const ret3 = formatPct(momentum.returns?.m3);
+  const ret6 = formatPct(momentum.returns?.m6);
+  const ret12 = formatPct(momentum.returns?.m12);
+  const rsi = momentum.rsi14!=null ? momentum.rsi14.toFixed(1) : '-';
+  const atr = momentum.atr14!=null ? momentum.atr14.toFixed(2) : '-';
+  const volRatio = momentum.volume_ratio!=null ? momentum.volume_ratio.toFixed(2) : '-';
+  const etfLine = momentum.etf?.symbol ? `${momentum.etf.symbol} 3M ${formatPct(momentum.etf.return3m)}` : '－';
+  const maNotes = [];
+  if(momentum.moving_averages?.ma20) maNotes.push(`MA20 ${momentum.moving_averages.ma20.toFixed(2)}`);
+  if(momentum.moving_averages?.ma50) maNotes.push(`MA50 ${momentum.moving_averages.ma50.toFixed(2)}`);
+  if(momentum.moving_averages?.ma200) maNotes.push(`MA200 ${momentum.moving_averages.ma200.toFixed(2)}`);
+  const maLine = maNotes.join(' ｜ ') || '均線資料不足';
+  appendLine(momentumSummaryEl, `${trendText} · 動能評分 ${scoreText} ｜ 3M ${ret3}`);
+  appendLine(momentumDetailEl, `6M ${ret6} ｜ 12M ${ret12}`, 'muted');
+  appendLine(momentumDetailEl, `RSI14 ${rsi} ｜ ATR14 ${atr} ｜ 量能比 (5/30) ${volRatio}`, 'muted');
+  appendLine(momentumDetailEl, maLine, 'muted');
+  appendLine(momentumDetailEl, `ETF 參考：${etfLine}`, 'muted');
+  if(momentum.indicators?.fmp){
+    const f = momentum.indicators.fmp;
+    const fmpParts = [];
+    if(toNum(f.ema20)!=null) fmpParts.push(`EMA20 ${toNum(f.ema20).toFixed(2)}`);
+    if(toNum(f.sma50)!=null) fmpParts.push(`SMA50 ${toNum(f.sma50).toFixed(2)}`);
+    if(toNum(f.rsi14)!=null) fmpParts.push(`RSI ${toNum(f.rsi14).toFixed(1)}`);
+    if(fmpParts.length) appendLine(momentumDetailEl, `FMP 指標：${fmpParts.join(' ｜ ')}`, 'muted');
+    if(f.macd && (toNum(f.macd.macd)!=null || toNum(f.macd.signal)!=null)){
+      const macdLine = [`MACD ${toNum(f.macd.macd)?.toFixed(2) ?? '-'}`];
+      if(toNum(f.macd.signal)!=null) macdLine.push(`Signal ${toNum(f.macd.signal).toFixed(2)}`);
+      appendLine(momentumDetailEl, `• ${macdLine.join(' ｜ ')}`, 'muted');
+    }
+  }
+  if(Array.isArray(momentum.etf?.sectors) && momentum.etf.sectors.length){
+    const topSectors = momentum.etf.sectors.slice(0,3).map(item=>{
+      const label = item.sector || item.name || '';
+      const weight = toNum(item.weightPercentage ?? item.weight ?? item.percent);
+      return `${label} ${weight!=null ? weight.toFixed(1)+'%' : ''}`.trim();
+    }).filter(Boolean);
+    if(topSectors.length){
+      appendLine(momentumDetailEl, `ETF 產業配重：${topSectors.join(' ｜ ')}`, 'muted');
+    }
+  }
+}
+
+function renderNews(bundle){
+  clearChildren(newsSummaryEl);
+  clearChildren(newsArticlesEl);
+  if(!bundle){
+    appendLine(newsSummaryEl, '尚無新聞', 'muted');
+    return;
+  }
+  const sentiment = bundle.sentiment || {};
+  const events = Array.isArray(sentiment.supporting_events) ? sentiment.supporting_events : [];
+  const articles = Array.isArray(bundle.articles) ? bundle.articles : [];
+  if(!events.length && !articles.length){
+    appendLine(newsSummaryEl, '尚無新聞', 'muted');
+    appendLine(newsArticlesEl, '（尚無可用新聞）', 'muted');
+    return;
+  }
+  const summaryText = `${sentiment.sentiment_label || '中性'} · ${sentiment.summary || '（尚無摘要）'}`;
+  appendLine(newsSummaryEl, summaryText);
+  if(events.length){
+    appendLine(newsArticlesEl, '關鍵事件', '');
+    events.forEach(ev=>{
+      appendLine(newsArticlesEl, `• ${ev.title || '事件'}：${ev.reason || ''}`, 'muted');
+    });
+  }
+  if(articles.length){
+    appendLine(newsArticlesEl, '最新新聞', '');
+    articles.forEach(a=>{
+      const line = document.createElement('div');
+      line.className = 'muted';
+      const time = formatNewsDate(a.published_at);
+      const title = a.title || '新聞';
+      const link = document.createElement('a');
+      link.href = safeUrl(a.url);
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = title;
+      line.textContent = `• ${time ? `${time} ` : ''}`;
+      line.appendChild(link);
+      newsArticlesEl.appendChild(line);
+    });
+  }
+  if(!events.length && !articles.length){
+    appendLine(newsArticlesEl, '（尚無可用新聞）', 'muted');
+  }
+}
+
+function renderMacro(data){
+  clearChildren(macroSummaryEl);
+  clearChildren(macroDetailEl);
+  if(!data){
+    appendLine(macroSummaryEl, '尚無宏觀資料', 'muted');
+    return;
+  }
+  const parts = [];
+  if(toNum(data.yields?.y10)!=null) parts.push(`10Y ${formatYield(data.yields.y10)}`);
+  if(toNum(data.yields?.y2)!=null) parts.push(`2Y ${formatYield(data.yields.y2)}`);
+  if(toNum(data.yields?.spread)!=null) parts.push(`利差 ${formatYield(data.yields.spread)}`);
+  if(parts.length) appendLine(macroSummaryEl, parts.join(' ｜ '));
+  if(data.market_risk_premium?.value!=null){
+    appendLine(macroSummaryEl, `市場風險溢酬 ${formatYield(data.market_risk_premium.value)}`, 'muted');
+  }
+  const events = Array.isArray(data.upcoming_events) ? data.upcoming_events : [];
+  if(events.length){
+    appendLine(macroDetailEl, '重點經濟事件', '');
+    events.forEach(ev=>{
+      appendLine(
+        macroDetailEl,
+        `• ${(ev.date || '').replace('T',' ').slice(0,16)} ${ev.event || ''} ${ev.country ? `(${ev.country})` : ''} ${ev.impact ? `[${ev.impact}]` : ''}`.trim(),
+        'muted'
+      );
+    });
+  }else{
+    appendLine(macroDetailEl, '近期無重大經濟事件', 'muted');
+  }
+}
+
+function renderInstitutional(data){
+  clearChildren(instSummaryEl);
+  clearChildren(instDetailEl);
+  if(!data){
+    appendLine(instSummaryEl, '尚無 13F 資料', 'muted');
+    return;
+  }
+  const headlineParts = [];
+  if(data.signal?.label){
+    headlineParts.push(`信號：${data.signal.label}`);
+  }
+  if(data.period){
+    headlineParts.push(`季度：${data.period}`);
+  }
+  if(data.as_of){
+    headlineParts.push(`申報日：${data.as_of}`);
+  }
+  if(headlineParts.length){
+    appendLine(instSummaryEl, headlineParts.join(' ｜ '));
+  }
+  appendLine(instSummaryEl, data.summary || '最近未見顯著變動。', 'muted');
+  const top = Array.isArray(data.top_holders) ? data.top_holders : [];
+  if(top.length){
+    appendLine(instDetailEl, '前五大機構', '');
+    top.forEach(holder=>{
+      const weightText = holder.weight!=null ? formatPct(holder.weight) : '';
+      const changeText = holder.change_shares ? `，變動 ${formatMillions(holder.change_shares)} 股` : '';
+      appendLine(
+        instDetailEl,
+        `• ${holder.name || '機構'}：${formatMillions(holder.value)} ${weightText?`（${weightText}）`:''}${changeText}`,
+        'muted'
+      );
+    });
+  }
+  const metrics = data.metrics || null;
+  if(metrics){
+    appendLine(instDetailEl, '整體概況', '');
+    if(metrics.total_invested!=null){
+      appendLine(instDetailEl, `• 總投資金額：${formatMillions(metrics.total_invested)}`, 'muted');
+    }
+    if(metrics.ownership_percent!=null){
+      const pct = Number(metrics.ownership_percent);
+      const pctText = Number.isFinite(pct) ? `${pct.toFixed(1)}%` : `${metrics.ownership_percent}%`;
+      appendLine(instDetailEl, `• 機構持股：${pctText}`, 'muted');
+    }
+    if(metrics.investors_holding!=null){
+      appendLine(instDetailEl, `• 申報機構數：${metrics.investors_holding}`, 'muted');
+    }
+    if(metrics.new_positions!=null || metrics.closed_positions!=null){
+      appendLine(instDetailEl, `• 本季新進/出清：${metrics.new_positions ?? '-'} / ${metrics.closed_positions ?? '-'}`, 'muted');
+    }
+    if(metrics.put_call_ratio!=null){
+      const ratio = Number(metrics.put_call_ratio);
+      const ratioText = Number.isFinite(ratio) ? ratio.toFixed(2) : metrics.put_call_ratio;
+      appendLine(instDetailEl, `• Put/Call：${ratioText}`, 'muted');
+    }
+  }
+  if(data.insider_activity){
+    appendLine(instDetailEl, '內部人動態', '');
+    if(data.insider_activity.summary_text){
+      appendLine(instDetailEl, `• ${data.insider_activity.summary_text}`, 'muted');
+    }
+    const stats = data.insider_activity.stats || {};
+    if(stats.net_shares!=null){
+      appendLine(instDetailEl, `• 淨買賣：${formatMillions(stats.net_shares)} 股`, 'muted');
+    }
+    if(stats.net_value!=null){
+      appendLine(instDetailEl, `• 金額：約 ${formatMillions(stats.net_value)}`, 'muted');
+    }
+    const recent = Array.isArray(data.insider_activity.recent) ? data.insider_activity.recent : [];
+    recent.forEach(item=>{
+      appendLine(instDetailEl, `• ${item.date || ''} ${item.insider || ''} ${item.type || ''} ${item.shares?`${formatMillions(item.shares)} 股`:''} @ ${item.price?`$${item.price}`:''}`.trim(), 'muted');
+    });
+  }
+  if(data.analyst_actions){
+    const actions = data.analyst_actions;
+    appendLine(instDetailEl, '券商升/降評', '');
+    if(actions.window_7d){
+      appendLine(instDetailEl, `• 7 天：升評 ${actions.window_7d.upgrades ?? 0} / 降評 ${actions.window_7d.downgrades ?? 0}`, 'muted');
+    }
+    if(actions.window_30d){
+      appendLine(instDetailEl, `• 30 天：升評 ${actions.window_30d.upgrades ?? 0} / 降評 ${actions.window_30d.downgrades ?? 0}`, 'muted');
+    }
+    const recentActions = Array.isArray(actions.recent) ? actions.recent.slice(0,3) : [];
+    recentActions.forEach(item=>{
+      appendLine(instDetailEl, `• ${item.date || ''} ${item.firm || ''}：${item.action || ''} → ${item.to || ''}${item.price_target?`，目標價 ${formatUsd(item.price_target,0)}`:''}`, 'muted');
+    });
+  }
+}
+
+function renderEarningsCall(data){
+  clearChildren(callSummaryEl);
+  clearChildren(callDetailEl);
+  if(!data){
+    appendLine(callSummaryEl, '尚無 Earnings Call 摘要', 'muted');
+    return;
+  }
+  const titleParts = [];
+  if(data.quarter) titleParts.push(data.quarter);
+  if(data.date) titleParts.push(data.date);
+  appendLine(callSummaryEl, titleParts.join(' ｜ ') || '最新 Earnings Call');
+  appendLine(callSummaryEl, data.summary || '尚無摘要', 'muted');
+  const bullets = Array.isArray(data.bullets) ? data.bullets : [];
+  if(bullets.length){
+    bullets.forEach(item=>{
+      appendLine(callDetailEl, `• ${item.title || '重點'}：${item.detail || ''}`, 'muted');
+    });
+  }else if(data.raw_excerpt){
+    appendLine(callDetailEl, data.raw_excerpt, 'muted');
+  }
+  if(data.source){
+    const link = document.createElement('a');
+    link.href = safeUrl(data.source);
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = '查看完整逐字稿';
+    link.style.marginTop = '6px';
+    callDetailEl.appendChild(link);
+  }
+}
+
+function renderAnalystSignals(rawData){
+  clearChildren(analystSummaryEl);
+  clearChildren(analystDetailEl);
+  const data = normalizeAnalystMetrics(rawData);
+  if(!data){
+    appendLine(analystSummaryEl, '尚無分析師資料', 'muted');
+    return;
+  }
+  const summaryParts = [];
+  if(data.price_targets?.month_avg!=null){
+    summaryParts.push(`近月 ${formatUsd(data.price_targets.month_avg)} (${data.price_targets.month_count ?? 0}筆)`);
+  }
+  if(data.price_targets?.quarter_avg!=null){
+    summaryParts.push(`近季 ${formatUsd(data.price_targets.quarter_avg)} (${data.price_targets.quarter_count ?? 0}筆)`);
+  }
+  if(data.price_targets?.year_avg!=null){
+    summaryParts.push(`近年 ${formatUsd(data.price_targets.year_avg)} (${data.price_targets.year_count ?? 0}筆)`);
+  }
+  appendLine(analystSummaryEl, summaryParts.length ? summaryParts.join(' ｜ ') : '目標價資料有限，僅供參考。', summaryParts.length ? '' : 'muted');
+  if(data.price_targets?.confidence === 'low'){
+    appendLine(analystSummaryEl, '分析師樣本少於 3 筆，僅供參考。', 'muted');
+  }
+
+  const detailLines = [];
+  if(data.rating){
+    const ratingText = [data.rating.latest || '-', data.rating.trend_arrow || ''].filter(Boolean).join(' ');
+    const deltaText = data.rating.trend_delta!=null
+      ? `${(data.rating.trend_delta).toFixed(1)} 分 / ${data.rating.window_days || '?'}天`
+      : '';
+    detailLines.push(`評級：${ratingText} ${deltaText}`.trim());
+  }
+  if(data.estimates?.quarterly){
+    detailLines.push(`下一季 ${data.estimates.quarterly.period || ''} ${formatEstimatePair(data.estimates.quarterly)}`);
+    if(data.estimates.quarterly.eps_growth!=null || data.estimates.quarterly.revenue_growth!=null){
+      detailLines.push(`• 成長率 EPS ${formatGrowthLabel(data.estimates.quarterly.eps_growth) || '-'} / Revenue ${formatGrowthLabel(data.estimates.quarterly.revenue_growth) || '-'}`);
+    }
+  }
+  if(data.estimates?.annual){
+    detailLines.push(`下一年 ${data.estimates.annual.period || ''} ${formatEstimatePair(data.estimates.annual)}`);
+    if(data.estimates.annual.eps_growth!=null || data.estimates.annual.revenue_growth!=null){
+      detailLines.push(`• 成長率 EPS ${formatGrowthLabel(data.estimates.annual.eps_growth) || '-'} / Revenue ${formatGrowthLabel(data.estimates.annual.revenue_growth) || '-'}`);
+    }
+  }
+  if(data.grades){
+    detailLines.push(`近90天 升評 ${data.grades.upgrades_90d ?? 0} / 降評 ${data.grades.downgrades_90d ?? 0}（淨 ${data.grades.diff_90d ?? 0}）`);
+    if(data.grades.consensus_label){
+      detailLines.push(`券商共識：${data.grades.consensus_label}`);
+    }
+  }
+  if(!detailLines.length){
+    appendLine(analystDetailEl, '尚無可用的詳細資訊', 'muted');
+  }else{
+    detailLines.forEach(line=> appendLine(analystDetailEl, line, line.startsWith('•') ? 'muted' : ''));
+  }
+}
+
+function renderHistory(){
+  clearChildren(historyListEl);
+  if(!analysisHistory.length){
+    appendLine(historyListEl, '尚無分析紀錄', 'muted');
+    return;
+  }
+  analysisHistory.forEach(item=>{
+    const wrap = document.createElement('div');
+    wrap.style.marginBottom = '10px';
+    const title = document.createElement('div');
+    const strong = document.createElement('strong');
+    strong.textContent = item.ticker;
+    title.appendChild(strong);
+    title.appendChild(document.createTextNode(` · ${item.date}`));
+    wrap.appendChild(title);
+    const summary = document.createElement('div');
+    summary.className = 'muted';
+    summary.textContent = item.summary;
+    wrap.appendChild(summary);
+    historyListEl.appendChild(wrap);
+  });
+}
+
+function renderProfile(profile){
+  const summaryEl = document.getElementById('profileSummary');
+  const detailEl = document.getElementById('profileDetail');
+  clearChildren(summaryEl);
+  clearChildren(detailEl);
+  if(!profile){
+    appendLine(summaryEl, '尚無資料', 'muted');
+    return;
+  }
+  const filtersMet = profile.filters?.met ?? profile.filters_met;
+  const filtersTotal = profile.filters?.total ?? profile.filters_total;
+  const filterLine = (filtersMet!=null && filtersTotal!=null)
+    ? `硬性條件：${filtersMet}/${filtersTotal} 項通過`
+    : '';
+  const scoreLine = Number.isFinite(toNum(profile.score))
+    ? `體質評分：${formatScore(profile.score)}`
+    : '';
+  const segmentLine = formatSegment(profile);
+  const headline = [segmentLine, filterLine, scoreLine].filter(Boolean).join(' ｜ ');
+  if(headline) appendLine(summaryEl, headline);
+  appendLine(summaryEl, profile.summary || profile.score_summary || profile.notes || '（模型尚未提供詳解）');
+
+  const filterItems = profile.filters?.items || profile.filter_details;
+  if(Array.isArray(filterItems) && filterItems.length){
+    appendLine(detailEl, '硬性過濾', '');
+    filterItems.forEach(item=>{
+      const passed = item.met ?? item.pass ?? false;
+      const tag = passed ? '✅' : '⚠️';
+      appendLine(detailEl, `${tag} ${item.name || item.label || '條件'}：${item.reason || item.detail || ''}`, 'muted');
+    });
+  }
+  const scoreDetails = profile.score_detail || profile.score_breakdown;
+  if(Array.isArray(scoreDetails) && scoreDetails.length){
+    appendLine(detailEl, '打分拆解', '');
+    scoreDetails.forEach(item=>{
+      const pts = toNum(item.points ?? item.score);
+      const ptsLabel = Number.isFinite(pts)? `(${pts.toFixed(0)}分)` : '';
+      appendLine(detailEl, `• ${(item.category || item.name || '').trim()} ${ptsLabel}：${item.reason || item.note || ''}`, 'muted');
+    });
+  }
+  const catalysts = profile.catalysts;
+  if(Array.isArray(catalysts) && catalysts.length){
+    appendLine(detailEl, '催化重點', '');
+    catalysts.forEach(c=> appendLine(detailEl, `• ${c}`, 'muted'));
+  }
+}
+
+const statusEl = document.getElementById('status');
+const goBtn = document.getElementById('go');
+const stopBtn = document.getElementById('stop');
+const momentumScoreEl = document.getElementById('momentumScore');
+const trendFlagEl = document.getElementById('trendFlag');
+const ptRecentMonthEl = document.getElementById('ptRecentMonth');
+const ptRecentQuarterEl = document.getElementById('ptRecentQuarter');
+const ratingTrendKpiEl = document.getElementById('ratingTrendKpi');
+const momentumSummaryEl = document.getElementById('momentumSummary');
+const momentumDetailEl = document.getElementById('momentumDetail');
+const newsSentimentEl = document.getElementById('newsSentiment');
+const newsSummaryEl = document.getElementById('newsSummary');
+const newsArticlesEl = document.getElementById('newsArticles');
+const instSummaryEl = document.getElementById('instSummary');
+const instDetailEl = document.getElementById('instDetail');
+const callSummaryEl = document.getElementById('callSummary');
+const callDetailEl = document.getElementById('callDetail');
+const analystSummaryEl = document.getElementById('analystSummary');
+const analystDetailEl = document.getElementById('analystDetail');
+const macroSummaryEl = document.getElementById('macroSummary');
+const macroDetailEl = document.getElementById('macroDetail');
+const historyListEl = document.getElementById('historyList');
+const refreshBtn = document.getElementById('refreshCache');
+const refreshLabel = refreshBtn?.textContent || '重新抓取';
+const analyzeLabel = goBtn?.textContent || '分析';
+const modelSelect = document.getElementById('model');
+const modeSelect = document.getElementById('mode');
+const batchModeSelect = document.getElementById('batchMode');
+const dateInputEl = document.getElementById('d');
+if(dateInputEl){
+  const todayStr = dayjs().format('YYYY-MM-DD');
+  if(!dateInputEl.value){
+    dateInputEl.value = todayStr;
+  }
+  dateInputEl.max = todayStr;
+}
+let inFlightController = null;
+let userAborted = false;
+const analysisHistory = [];
+let lastCompletedParams = null;
+
+renderNews(null);
+renderMacro(null);
+renderInstitutional(null);
+renderEarningsCall(null);
+renderMomentum(null);
+renderAnalystSignals(null);
+renderHistory();
+setRefreshState('disabled');
+
+function setStatus(text, state='idle'){
+  statusEl.textContent = text;
+  statusEl.setAttribute('data-state', state);
+}
+
+function setAnalyzeRunning(running){
+  if(!goBtn) return;
+  if(running){
+    goBtn.disabled = true;
+    goBtn.textContent = '分析中...';
+    if(stopBtn){
+      stopBtn.style.display = 'inline-flex';
+      stopBtn.disabled = false;
+    }
+  }else{
+    goBtn.disabled = false;
+    goBtn.textContent = analyzeLabel;
+    if(stopBtn){
+      stopBtn.style.display = 'none';
+      stopBtn.disabled = false;
+    }
+    inFlightController = null;
+  }
+  if(running){
+    setRefreshState('disabled');
+  }
+  if(modelSelect) modelSelect.disabled = running;
+  if(modeSelect) modeSelect.disabled = running;
+}
+
+async function analyze(){
+  if(inFlightController){
+    setStatus('已有分析任務執行中，請稍候或按「停止」。', 'running');
+    return;
+  }
+  const { ticker, date, model, mode } = collectInputParams();
+  if(!ticker || !date){
+    setStatus('請先輸入 Ticker 與 Date。', 'error');
+    return;
+  }
+
+  userAborted = false;
+  setAnalyzeRunning(true);
+  setStatus(`正在分析 ${ticker}，這可能需要 1-2 分鐘，請勿關閉頁面…`, 'running');
+  document.getElementById('out').textContent='分析中...';
+
+  const controller = new AbortController();
+  inFlightController = controller;
+
+  try{
+    const r = await fetch('/api/analyze',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ ticker, date, analysis_model: model, mode }),
+      signal: controller.signal
+    });
+    const j = await r.json().catch(()=> ({}));
+    document.getElementById('out').textContent = JSON.stringify(j,null,2);
+    if(!r.ok || j.error){
+      const message = j?.error || (r.status === 409 ? '快取模式下找不到既有結果' : `HTTP ${r.status}`);
+      setStatus(`分析失敗：${message}`, 'error');
+      return;
+    }
+
+    const analystMetrics = normalizeAnalystMetrics(
+      j?.analyst_metrics
+      || j?.inputs?.analyst_metrics
+      || j?.analyst_signals
+      || j?.inputs?.analyst_signals
+    );
+    setKPIs(
+      j?.fetched?.finnhub_summary?.quote,
+      j?.fetched?.finnhub_summary?.price_target,
+      j?.fetched?.finnhub_summary?.price_meta,
+      j?.analysis?.action,
+      j?.analysis?.profile,
+      j?.news,
+      j?.momentum,
+      analystMetrics
+    );
+    const filingsMeta = j?.fetched?.filings || [];
+    const rawTimeline = (j?.analysis?.per_filing && j.analysis.per_filing.length)
+      ? j.analysis.per_filing
+      : (j?.per_filing_summaries || j?.inputs?.sec_filings || []);
+    const timelineData = rawTimeline.map((f,i)=>{
+      const meta = filingsMeta[i] || {};
+      return {
+        ...f,
+        explanation: f.explanation || f.mda_summary || f.mda_excerpt,
+        formLabel: f.formLabel || f.form_label || meta.form_label || meta.form || f.form
+      };
+    });
+    renderTimeline(timelineData);
+    renderConclusion(j?.analysis, j?.llm_usage);
+    renderProfile(j?.analysis?.profile);
+    renderNews(j?.news);
+    renderMacro(j?.macro);
+    renderInstitutional(j?.institutional);
+    renderEarningsCall(j?.earnings_call);
+    renderMomentum(j?.momentum);
+    renderAnalystSignals(analystMetrics);
+    const newsLabel = j?.news?.sentiment?.sentiment_label ? `新聞：${j.news.sentiment.sentiment_label}` : '';
+    const momentumLabel = j?.momentum?.trend ? `動能：${j.momentum.trend}` : '';
+    const baseSummary = j?.analysis?.consensus_view?.summary || j?.analysis?.action?.rationale || j?.news?.sentiment?.summary || '（尚無摘要）';
+    const historySummary = [baseSummary, newsLabel, momentumLabel].filter(Boolean).join(' ｜ ');
+    analysisHistory.unshift({
+      ticker: j?.input?.ticker || ticker,
+      date: j?.input?.date || date,
+      summary: historySummary
+    });
+    if(analysisHistory.length > 10) analysisHistory.pop();
+    renderHistory();
+    setStatus('分析完成 ✅', 'done');
+    lastCompletedParams = {
+      ticker: j?.input?.ticker || ticker,
+      date: j?.input?.date || date,
+      model,
+      mode
+    };
+    setRefreshState('enabled');
+  }catch(err){
+    if(err.name === 'AbortError'){
+      const msg = userAborted ? '用戶終止，請重新開始分析。' : '分析已中止，請稍後再試。';
+      setStatus(msg, 'error');
+      document.getElementById('out').textContent = '此次分析已被終止。';
+    }else{
+      setStatus(`連線失敗：${err.message}`, 'error');
+    }
+  }finally{
+    setAnalyzeRunning(false);
+    setRefreshState(lastCompletedParams ? 'enabled' : 'disabled');
+  }
+}
+
+goBtn.addEventListener('click', analyze);
+if(stopBtn){
+  stopBtn.addEventListener('click', ()=>{
+    if(!inFlightController) return;
+    userAborted = true;
+    stopBtn.disabled = true;
+    inFlightController.abort();
+  });
+}
+
+async function handleRefreshClick(){
+  if(inFlightController){
+    setStatus('分析進行中，請先等待完成或停止。', 'running');
+    return;
+  }
+  if(!lastCompletedParams){
+    setStatus('尚無可重抓的分析結果，請先完成一次分析。', 'error');
+    return;
+  }
+  const { ticker, date, model } = collectInputParams();
+  if(ticker !== lastCompletedParams.ticker || date !== lastCompletedParams.date){
+    setStatus('目前輸入與最後一次分析不同，請先重新分析後再重抓。', 'error');
+    return;
+  }
+  setRefreshState('busy');
+  setStatus(`正在清除 ${ticker}（${date}）快取，請稍候…`, 'running');
+  try{
+    const resp = await fetch('/api/reset-cache',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ticker, date, analysis_model: model })
+    });
+    const payload = await resp.json().catch(()=> ({}));
+    if(!resp.ok || payload?.error){
+      throw new Error(payload?.error || `HTTP ${resp.status}`);
+    }
+    setStatus('快取已清除，重新分析中…', 'running');
+    await analyze();
+  }catch(err){
+    setStatus(`重新抓取失敗：${err.message}`, 'error');
+    setRefreshState(lastCompletedParams ? 'enabled' : 'disabled');
+  }
+}
+
+if(refreshBtn){
+  refreshBtn.addEventListener('click', handleRefreshClick);
+}
+
+const batchFile = document.getElementById('batchFile');
+const batchCardBtn = document.getElementById('batchCardBtn');
+const batchRunning = document.getElementById('batchRunning');
+
+function setBatchState(running){
+  if(!batchCardBtn || !batchRunning) return;
+  if(running){
+    batchCardBtn.style.display = 'none';
+    batchRunning.style.display = 'flex';
+  }else{
+    batchCardBtn.style.display = 'inline-flex';
+    batchRunning.style.display = 'none';
+  }
+}
+setBatchState(false);
+
+async function handleBatchUpload(file){
+  setBatchState(true);
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    const batchMode = batchModeSelect?.value || 'full';
+    const qs = new URLSearchParams({ mode: batchMode });
+    const res = await fetch(`/api/batch?${qs.toString()}`,{ method:'POST', body: fd });
+    if(!res.ok){
+      const text = await res.text();
+      throw new Error(text || '批次分析失敗');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const base = file.name.replace(/\.[^.]+$/, '') || 'batch_results';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${base}_results.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }catch(err){
+    alert(`批次分析失敗：${err.message}`);
+  }finally{
+    setBatchState(false);
+  }
+}
+
+if(batchCardBtn) batchCardBtn.addEventListener('click', ()=> batchFile.click());
+batchFile.addEventListener('change', ()=>{
+  const file = batchFile.files[0];
+  if(file) handleBatchUpload(file);
+  batchFile.value = '';
+});
+</script>
+</body>
+</html>
