@@ -289,7 +289,7 @@ app.post("/api/run-test", async (req, res) => {
     runCtx.finishedAt = Date.now();
     if (activeRun === runCtx) activeRun = null;
   };
-  req.on("close", () => {
+  req.on("aborted", () => {
     if (!runCtx.finishedAt) runCtx.cancelled = true;
   });
 
