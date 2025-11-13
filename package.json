@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -k -n WEB,ANALYZER -c auto \"cd web && node server.js\" \"cd analyzer && npm run dev\"",
-    "start": "concurrently -k -n WEB,ANALYZER -c auto \"cd web && node server.js\" \"cd analyzer && PORT=${ANALYZER_PORT:-5001} node server.js\""
+    "start": "concurrently -k -n WEB,ANALYZER -c auto \"cd web && node server.js\" \"cd analyzer && PORT=${ANALYZER_PORT:-5001} node server.js\"",
+    "postinstall": "npm install --prefix analyzer && npm install --prefix web"
   },
   "devDependencies": { "concurrently": "^9.0.1" }
 }
