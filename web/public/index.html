@@ -5,85 +5,362 @@
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <title>S&P 500 命中率測試器（FMP /stable）</title>
     <style>
-      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;margin:24px;}
-      .row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
-      label{min-width:7rem}
-      input,select,textarea{padding:.35rem .5rem}
-      textarea{width:100%;min-height:80px}
-      button{padding:.55rem 1rem}
-      .muted{color:#6c757d}
-      table{border-collapse:collapse;width:100%;margin-top:14px}
-      th,td{border:1px solid #eee;padding:.4rem .5rem;text-align:left}
-      th{background:#fafafa}
-      .badge{display:inline-block;padding:.2rem .5rem;border-radius:.25rem;font-size:.8rem}
-      .good{background:#e7f7ee;color:#0a8a4a}
-      .bad{background:#fdecea;color:#b9382a}
-      fieldset{border:1px solid #e5e7eb;padding:12px;margin-bottom:10px;border-radius:8px}
-      legend{padding:0 6px;color:#334155}
-      .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+      :root{
+        color-scheme: dark;
+        --bg:#0b111f;
+        --bg-alt:#111a2d;
+        --panel:#141e34;
+        --panel-strong:#172442;
+        --border:rgba(255,255,255,.12);
+        --accent:#49c6ff;
+        --accent-strong:#7f5bff;
+        --text:#f3f6ff;
+        --muted:#a6b3d6;
+        --success:#00d38f;
+        --danger:#ff6b6b;
+      }
+      *,*::before,*::after{box-sizing:border-box;}
+      body{
+        margin:0;
+        font-family: "Inter","Noto Sans TC", "SF Pro Display",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        background:var(--bg);
+        color:var(--text);
+        min-height:100vh;
+        line-height:1.6;
+      }
+      body::before{
+        content:"";
+        position:fixed;
+        inset:0;
+        background:
+          radial-gradient(circle at 30% -20%,rgba(90,125,255,.45),transparent 45%),
+          radial-gradient(circle at 80% 0,rgba(0,215,168,.3),transparent 45%),
+          radial-gradient(circle at 20% 120%,rgba(91,64,255,.35),transparent 40%);
+        z-index:-2;
+      }
+      body::after{
+        content:"";
+        position:fixed;
+        inset:0;
+        background:url("data:image/svg+xml,%3Csvg width='160' height='160' viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 159.5L160 0.5' stroke='rgba(255,255,255,0.02)'/%3E%3C/svg%3E");
+        opacity:.35;
+        z-index:-1;
+      }
+      .app-shell{
+        max-width:1200px;
+        margin:0 auto;
+        padding:32px clamp(16px,4vw,48px) 64px;
+      }
+      .card{
+        background:var(--panel);
+        border:1px solid var(--border);
+        border-radius:28px;
+        padding:28px;
+        backdrop-filter:blur(18px);
+        box-shadow:0 25px 60px rgba(5,8,20,.55);
+      }
+      .hero{
+        margin-bottom:28px;
+        display:flex;
+        flex-wrap:wrap;
+        align-items:center;
+        gap:24px;
+      }
+      .hero h1{
+        margin:8px 0 12px;
+        font-size:2.3rem;
+        letter-spacing:.02em;
+      }
+      .eyebrow{
+        text-transform:uppercase;
+        letter-spacing:.3em;
+        font-size:.8rem;
+        color:var(--accent);
+      }
+      .stats-row{
+        display:flex;
+        gap:16px;
+        flex-wrap:wrap;
+      }
+      .stat-pill{
+        min-width:180px;
+        padding:16px 20px;
+        border-radius:18px;
+        background:var(--panel-strong);
+        border:1px solid rgba(255,255,255,.1);
+        box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);
+      }
+      .stat-label{
+        font-size:.85rem;
+        color:var(--muted);
+        text-transform:uppercase;
+        letter-spacing:.25em;
+      }
+      .stat-value{
+        font-size:1.4rem;
+        font-weight:600;
+      }
+      .main-grid{
+        display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+        gap:24px;
+        margin-bottom:24px;
+      }
+      .panel-title{
+        font-size:1.2rem;
+        margin:0 0 10px;
+        font-weight:600;
+        color:#fff;
+      }
+      .panel-sub{
+        margin:0 0 22px;
+        color:var(--muted);
+        font-size:1rem;
+      }
+      .form-grid{
+        display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+        gap:16px;
+      }
+      label{
+        font-size:.95rem;
+        color:#d8e3ff;
+        display:block;
+        margin-bottom:6px;
+      }
+      input,select,textarea{
+        width:100%;
+        border-radius:18px;
+        border:1px solid rgba(255,255,255,.2);
+        background:rgba(7,13,30,.9);
+        color:var(--text);
+        padding:.75rem .95rem;
+        font-size:1.05rem;
+        transition:border .2s, box-shadow .2s, transform .15s;
+      }
+      input:focus,select:focus,textarea:focus{
+        outline:none;
+        border-color:var(--accent);
+        box-shadow:0 0 0 3px rgba(73,198,255,.25);
+        transform:translateY(-1px);
+      }
+      textarea{min-height:140px; resize:vertical;}
+      .range-inline{
+        display:flex;
+        gap:8px;
+        align-items:center;
+      }
+      .range-inline input{flex:1;}
+      .action-bar{
+        display:flex;
+        flex-wrap:wrap;
+        gap:16px;
+        align-items:center;
+        margin-bottom:24px;
+      }
+      button{
+        border:none;
+        border-radius:999px;
+        padding:1rem 2.2rem;
+        font-size:1.05rem;
+        font-weight:600;
+        cursor:pointer;
+        transition:transform .15s, box-shadow .15s, opacity .15s;
+      }
+      #runBtn{
+        background:linear-gradient(120deg,var(--accent),var(--accent-strong));
+        color:#111;
+        box-shadow:0 10px 25px rgba(70,200,255,.35);
+      }
+      #runBtn:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;}
+      #runBtn:not(:disabled):hover{transform:translateY(-1px);}
+      #stopBtn{
+        background:transparent;
+        color:var(--muted);
+        border:1px solid rgba(255,255,255,.25);
+      }
+      #stopBtn:disabled{opacity:.35;cursor:not-allowed;}
+      .muted{color:var(--muted);}
+      .status-grid{
+        display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+        gap:16px;
+        margin-bottom:24px;
+      }
+      .status-card{
+        padding:22px 24px;
+        border-radius:22px;
+        background:var(--panel-strong);
+        border:1px solid rgba(255,255,255,.08);
+        box-shadow:0 12px 30px rgba(0,0,0,.4);
+      }
+      .status-card h4{
+        margin:0 0 8px;
+        font-size:.95rem;
+        letter-spacing:.2em;
+        text-transform:uppercase;
+        color:var(--muted);
+      }
+      table{
+        width:100%;
+        border-collapse:separate;
+        border-spacing:0;
+        margin-top:16px;
+        overflow:hidden;
+        border-radius:18px;
+        box-shadow:0 20px 35px rgba(0,0,0,.35);
+      }
+      th,td{
+        padding:14px 18px;
+        text-align:left;
+        font-size:1rem;
+      }
+      thead{
+        background:rgba(255,255,255,.06);
+      }
+      tbody tr:nth-child(odd){
+        background:rgba(255,255,255,.02);
+      }
+      tbody tr:hover{
+        background:rgba(73,198,255,.12);
+      }
+      .badge{
+        display:inline-flex;
+        align-items:center;
+        gap:6px;
+        font-size:.85rem;
+        padding:.25rem .75rem;
+        border-radius:999px;
+        font-weight:600;
+      }
+      .good{background:rgba(0,211,143,.12);color:var(--success);}
+      .bad{background:rgba(255,107,107,.12);color:var(--danger);}
+      #overall{
+        margin-top:12px;
+      }
+      #overall h3{
+        margin-bottom:12px;
+        font-size:1.45rem;
+      }
+      #overall a{
+        color:var(--accent);
+        text-decoration:none;
+        font-weight:700;
+      }
+      @media(max-width:640px){
+        .hero{padding:16px;}
+        .card{padding:20px;}
+        .range-inline{flex-direction:column;align-items:stretch;}
+        button{width:100%;text-align:center;}
+        .stat-pill{min-width:100%; justify-content:space-between;}
+      }
     </style>
   </head>
   <body>
-    <h2>S&P 500 命中率測試器（FMP /stable 版）</h2>
-
-    <fieldset>
-      <legend>回測期間</legend>
-      <div class="row">
-        <label>開始日期</label><input type="date" id="startDate" value="2024-01-01">
-        <label>結束日期</label><input type="date" id="endDate" value="2025-01-01">
-        <label>間隔</label>
-        <select id="interval">
-          <option value="week">週</option>
-          <option value="month" selected>月</option>
-          <option value="quarter">季</option>
-        </select>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>選股條件</legend>
-      <div class="grid">
+    <div class="app-shell">
+      <header class="hero card">
         <div>
-          <label>類型</label>
-          <select id="selType">
-            <option value="return">區間漲幅 Top N</option>
-            <option value="mcap_latest">市值 Top N（最新）</option>
-            <option value="mcap_asof">市值 Top N（指定日期）</option>
-            <option value="manual">手動清單（逗號/空白分隔）</option>
-          </select>
+          <div class="eyebrow">S&P 500 Backtester</div>
+          <h1>S&P 500 命中率測試器</h1>
+          <p class="muted">以 FMP stable API + Analyzer API 驅動，批次驗證 BUY/SELL 命中率，搭配 Zeabur 一鍵部署。</p>
         </div>
-        <div>
-          <label>Top N</label>
-          <input type="number" id="topN" min="1" max="500" value="50">
+        <div class="stats-row">
+          <div class="stat-pill">
+            <div class="stat-label">Analyzer</div>
+            <div class="stat-value">/api/analyze</div>
+          </div>
+          <div class="stat-pill">
+            <div class="stat-label">LLM Stack</div>
+            <div class="stat-value">GPT-5 + 4o-mini</div>
+          </div>
         </div>
-        <div id="rangeBox">
-          <label>漲幅區間</label>
-          <div class="row"><input type="date" id="retFrom" value="2024-01-01">→<input type="date" id="retTo" value="2024-12-31"></div>
-        </div>
-        <div id="asofBox" style="display:none">
-          <label>市值日期</label>
-          <input type="date" id="asOf" value="2025-12-31">
-        </div>
-      </div>
-      <div class="row">
-        <label>Sector 篩選（可多選）</label>
-        <select id="sectors" multiple size="5" style="min-width:260px"></select>
-      </div>
-      <div class="row" id="manualBox" style="display:none">
-        <label>手動股票</label>
-        <textarea id="manualTickers" placeholder="例如：AAPL, MSFT, NVDA"></textarea>
-      </div>
-    </fieldset>
+      </header>
 
-    <div class="row" style="gap:8px;align-items:center">
-      <button id="runBtn">開始測試</button>
-      <button id="stopBtn" disabled>停止</button>
+      <div class="main-grid">
+        <section class="card">
+          <h3 class="panel-title">回測期間</h3>
+          <p class="panel-sub">設定起訖日期與分析頻率，系統會按期向 Analyzer 請求評級。</p>
+          <div class="form-grid">
+            <div>
+              <label>開始日期</label>
+              <input type="date" id="startDate" value="2024-01-01">
+            </div>
+            <div>
+              <label>結束日期</label>
+              <input type="date" id="endDate" value="2025-01-01">
+            </div>
+            <div>
+              <label>間隔</label>
+              <select id="interval">
+                <option value="week">週</option>
+                <option value="month" selected>月</option>
+                <option value="quarter">季</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3 class="panel-title">選股條件</h3>
+          <p class="panel-sub">可選擇漲幅、最新市值、指定日期市值或手動清單。</p>
+          <div class="form-grid">
+            <div>
+              <label>類型</label>
+              <select id="selType">
+                <option value="return">區間漲幅 Top N</option>
+                <option value="mcap_latest">市值 Top N（最新）</option>
+                <option value="mcap_asof">市值 Top N（指定日期）</option>
+                <option value="manual">手動清單（逗號/空白分隔）</option>
+              </select>
+            </div>
+            <div>
+              <label>Top N</label>
+              <input type="number" id="topN" min="1" max="500" value="50">
+            </div>
+            <div id="rangeBox">
+              <label>漲幅區間</label>
+              <div class="range-inline">
+                <input type="date" id="retFrom" value="2024-01-01">
+                <span class="muted">→</span>
+                <input type="date" id="retTo" value="2024-12-31">
+              </div>
+            </div>
+            <div id="asofBox" style="display:none">
+              <label>市值日期</label>
+              <input type="date" id="asOf" value="2025-12-31">
+            </div>
+          </div>
+          <div style="margin-top:18px">
+            <label>Sector 篩選（可多選）</label>
+            <select id="sectors" multiple size="5" style="width:100%;"></select>
+          </div>
+          <div id="manualBox" style="display:none;margin-top:18px">
+            <label>手動股票</label>
+            <textarea id="manualTickers" placeholder="例如：AAPL, MSFT, NVDA"></textarea>
+          </div>
+        </section>
+      </div>
+
+      <div class="card">
+        <div class="action-bar">
+          <button id="runBtn">⚡ 開始測試</button>
+          <button id="stopBtn" disabled>停止</button>
+          <span class="muted">支援批次 Analyzer 呼叫、自動統計命中率並輸出 Excel。</span>
+        </div>
+        <div class="status-grid">
+          <div class="status-card">
+            <h4>執行狀態</h4>
+            <p id="log" class="muted">尚未執行</p>
+          </div>
+          <div class="status-card">
+            <h4>資源使用</h4>
+            <p id="usageStats" class="muted">—</p>
+          </div>
+        </div>
+        <div id="overall"></div>
+        <div id="table"></div>
+      </div>
     </div>
-
-    <div id="log" class="muted" style="margin-top:8px"></div>
-    <div id="usageStats" class="muted" style="margin-top:4px"></div>
-    <div id="overall"></div>
-    <div id="table"></div>
 
     <script>
       const $ = (s)=>document.querySelector(s);
