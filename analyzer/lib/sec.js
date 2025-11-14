@@ -39,29 +39,40 @@ async function fetchWithRetry(url, options, attempts=RETRY_ATTEMPTS){
   throw lastErr;
 }
 
+async function downloadIndex(userAgent, apiKey){
+  const { data } = await fetchWithRetry(INDEX_URL,{
+    headers:{ 'User-Agent': userAgent, 'Authorization': apiKey?`Bearer ${apiKey}`:undefined },
+    timeout:15000
+  });
+  data.__byTicker = buildTickerMap(data);
+  return data;
+}
+
 export async function getCIK(ticker, userAgent, apiKey){
   const t = ticker.toUpperCase().trim();
   const key = `sec_index_all`;
   let idx = await getCache(key);
-  let shouldPersist = false;
   if(!idx){
     try{
-      const {data} = await fetchWithRetry(INDEX_URL,{
-        headers:{ 'User-Agent': userAgent, 'Authorization': apiKey?`Bearer ${apiKey}`:undefined },
-        timeout:15000
-      });
-      idx = data;
-      shouldPersist = true;
-    }catch(err){ throw new Error(`[SEC] getCIK index failed: ${err.message}`); }
-  }
-  if(!idx.__byTicker){
+      idx = await downloadIndex(userAgent, apiKey);
+      await setCache(key, idx);
+    }catch(err){
+      throw new Error(`[SEC] getCIK index failed: ${err.message}`);
+    }
+  }else if(!idx.__byTicker){
     idx.__byTicker = buildTickerMap(idx);
-    shouldPersist = true;
-  }
-  if(shouldPersist){
     await setCache(key, idx);
   }
-  const row = idx.__byTicker?.[t];
+  let row = idx.__byTicker?.[t];
+  if(!row){
+    try{
+      idx = await downloadIndex(userAgent, apiKey);
+      await setCache(key, idx);
+      row = idx.__byTicker?.[t];
+    }catch(err){
+      throw new Error(`[SEC] getCIK index failed: ${err.message}`);
+    }
+  }
   if(!row) throw new Error('[SEC] Ticker not found in SEC index');
   return String(row.cik_str).padStart(10,'0');
 }

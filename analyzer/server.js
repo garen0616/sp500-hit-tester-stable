@@ -121,6 +121,8 @@ const WEAK_SIGNAL_TARGET_CAP = Number(process.env.WEAK_SIGNAL_TARGET_CAP || 1.25
 const WEAK_SIGNAL_TARGET_FLOOR = Number(process.env.WEAK_SIGNAL_TARGET_FLOOR || 0.8);
 const LLM_TARGET_MAX_MULTIPLIER = Number(process.env.LLM_TARGET_MAX_MULTIPLIER || 1.8);
 const LLM_TARGET_MIN_MULTIPLIER = Number(process.env.LLM_TARGET_MIN_MULTIPLIER || 0.6);
+const HOLD_BAND_BASE = Number(process.env.HOLD_BAND_BASE || 0.05);
+const HOLD_BAND_SMALL_CAP = Number(process.env.HOLD_BAND_SMALL_CAP || 0.07);
 
 const realtimeQuoteCache = new Map();
 const analystSignalInflight = new Map();
@@ -1160,6 +1162,109 @@ function classifyRecommendation(rating=''){
   return null;
 }
 
+function deriveBandPct(targetBand){
+  if(!targetBand) return null;
+  const bandPct = toFloat(targetBand.band_pct);
+  const upper = toFloat(targetBand.upper_pct);
+  const lower = toFloat(targetBand.lower_pct);
+  const candidates = [];
+  if(Number.isFinite(bandPct)) candidates.push(Math.abs(bandPct));
+  if(Number.isFinite(upper)) candidates.push(Math.abs(upper));
+  if(Number.isFinite(lower)) candidates.push(Math.abs(lower));
+  if(!candidates.length) return null;
+  return Math.max(...candidates.filter(val=>val>0));
+}
+
+function resolveHoldBandPct(analysis, priceMeta){
+  if(!analysis?.action) return null;
+  const existing = deriveBandPct(analysis.action.target_band);
+  if(Number.isFinite(existing) && existing > 0) return existing;
+  const segment = (analysis.profile?.segment || '').toLowerCase();
+  if(segment === 'small_cap') return HOLD_BAND_SMALL_CAP;
+  const current = toFloat(priceMeta?.value);
+  if(current!=null && current < 15) return HOLD_BAND_SMALL_CAP;
+  return HOLD_BAND_BASE;
+}
+
+function ensureTargetBand(analysis, priceMeta, bandPct){
+  if(!analysis?.action) return null;
+  const current = toFloat(priceMeta?.value);
+  const base = Number.isFinite(bandPct) && bandPct > 0 ? bandPct : HOLD_BAND_BASE;
+  const existing = analysis.action.target_band || {};
+  const upperPct = Number.isFinite(existing.upper_pct) ? Math.abs(existing.upper_pct) : base;
+  const lowerPct = Number.isFinite(existing.lower_pct) ? -Math.abs(existing.lower_pct) : -base;
+  const finalBandPct = Math.max(upperPct, Math.abs(lowerPct));
+  const struct = {
+    reason: existing.reason || '上下空間有限，維持觀望',
+    upper_pct: upperPct,
+    lower_pct: lowerPct,
+    band_pct: finalBandPct
+  };
+  if(Number.isFinite(current)){
+    struct.upper_price = Number((current * (1 + upperPct)).toFixed(2));
+    struct.lower_price = Number((current * (1 + lowerPct)).toFixed(2));
+  }
+  analysis.action.target_band = { ...existing, ...struct };
+  return analysis.action.target_band;
+}
+
+function applyHoldBand(analysis, priceMeta){
+  if(!analysis?.action) return;
+  const current = toFloat(priceMeta?.value);
+  const target = toFloat(analysis.action.target_price);
+  if(current==null || target==null) return;
+  const bandPct = resolveHoldBandPct(analysis, priceMeta);
+  if(!Number.isFinite(bandPct) || bandPct <= 0) return;
+  const band = ensureTargetBand(analysis, priceMeta, bandPct);
+  let stance = classifyRecommendation(analysis.action.rating);
+  const deltaPct = Math.abs(target - current) / current;
+  if(deltaPct <= band.band_pct && stance && stance !== 'neutral'){
+    analysis.action.rating = 'HOLD';
+    analysis.action.rationale = appendRationale(analysis.action.rationale, `（上下空間僅 ±${(band.band_pct*100).toFixed(1)}%，自動標記為 HOLD）`);
+    analysis.action.consistency_flag = 'needs_review';
+    stance = 'neutral';
+  }
+  if(stance === 'neutral'){
+    const upperLimit = current * (1 + band.band_pct);
+    const lowerLimit = current * (1 - band.band_pct);
+    let adjusted = target;
+    let clamped = false;
+    if(adjusted > upperLimit){
+      adjusted = upperLimit;
+      clamped = true;
+    }else if(adjusted < lowerLimit){
+      adjusted = lowerLimit;
+      clamped = true;
+    }
+    if(clamped){
+      analysis.action.target_price = Number(adjusted.toFixed(2));
+      analysis.action.rationale = appendRationale(analysis.action.rationale, '（HOLD 區間已限制目標價）');
+    }
+  }
+}
+
+function ensureHoldTriggers(analysis){
+  if(!analysis?.action) return;
+  const rating = String(analysis.action.rating || '').toUpperCase();
+  if(rating !== 'HOLD') return;
+  const bandPct = toFloat(analysis.action.target_band?.band_pct);
+  const bandText = Number.isFinite(bandPct) ? `±${(bandPct * 100).toFixed(1)}%` : '設定';
+  const raw = Array.isArray(analysis.action.re_rating_triggers)
+    ? analysis.action.re_rating_triggers.filter(item=>typeof item === 'string' && item.trim())
+    : [];
+  const unique = Array.from(new Set(raw));
+  const defaults = [
+    `若股價突破或跌破 ${bandText} 區間，需重新評估評級`,
+    '若連續兩季營收或 EPS 成長率重返雙位數 / 轉負則改寫投資假設',
+    '若動能或籌碼指標（RSI / 買賣超）連續兩週翻多或轉弱，需再評估'
+  ];
+  for(const candidate of defaults){
+    if(unique.length >= 2) break;
+    unique.push(candidate);
+  }
+  analysis.action.re_rating_triggers = unique;
+}
+
 function getConsensusTargetAvg(analystSignals){
   if(!analystSignals?.price_target_summary) return null;
   const summary = analystSignals.price_target_summary;
@@ -2099,7 +2204,9 @@ async function performAnalysis(ticker, date, opts={}){
   if(llm){
     applySmallCapGuardrail(llm, priceMeta);
     adjustRatingForSignals(llm, { priceMeta, guardrails, momentum });
+    applyHoldBand(llm, priceMeta);
     applyRatingTightRange(llm, priceMeta);
+    ensureHoldTriggers(llm);
     ensureActionRationale(llm, { priceMeta, signalHints });
     enforceActionConsistency(llm, priceMeta);
   }

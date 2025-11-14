@@ -13,10 +13,6 @@ const MODEL_PRICING = {
   'gpt-4o-mini': {
     input: 0.15 / 1_000_000,
     output: 0.60 / 1_000_000
-  },
-  'gpt-5': {
-    input: 1.25 / 1_000_000,
-    output: 10 / 1_000_000
   }
 };
 
@@ -36,13 +32,14 @@ function getPricing(model){
 }
 
 const SYSTEM_PROMPT = [
-  '你是資深金融分析師，需依據輸入資料輸出 JSON，所有文字必須使用繁體中文。若資料明確偏多或偏空，務必給出 BUY / SELL 評級，僅在訊號互相矛盾且目標價距離現價 ±5% 內時才可使用 HOLD。',
-  '結構：{"per_filing":[{"form":"10-Q|10-K","filingDate":"YYYY-MM-DD","reportDate":"YYYY-MM-DD","five_indicators":{"alignment_score":number,"key_conflicts":[string],"valuation_rationale":string,"risk_factors":[string],"catalyst_timeline":[{"event":string,"window":string,"why":string}]},"explanation":"300-500字"}],"consensus_view":{"summary":string,"agreement_ratio":number},"action":{"rating":"BUY|HOLD|SELL","target_price":number,"stop_loss":number,"confidence":"high|medium|low","valuation_gap":{"vs_price_pct":number,"narrative":string},"rationale":string},"profile":{"segment":"large_cap|small_cap","segment_label":string,"summary":string,"filters":{"total":8,"met":number,"items":[{"name":string,"met":boolean,"reason":string}]},"score":number,"score_detail":[{"category":string,"points":number,"reason":string}],"catalysts":[string]},"news_insight":{"summary":string,"impact":"正面|中性|負面","key_events":[{"title":string,"why":string}]}}',
+  '你是資深金融分析師，需依據輸入資料輸出 JSON，所有文字必須使用繁體中文。請先評估「上漲 / 持平 / 下跌」三種情境，若下行風險 ≥ 上行空間或動能顯示惡化就給 SELL；僅在訊號互相矛盾且上下空間都落在 ±5%（小型股可放寬至 ±7%）時才可採用 HOLD。',
+  '結構：{"per_filing":[{"form":"10-Q|10-K","filingDate":"YYYY-MM-DD","reportDate":"YYYY-MM-DD","five_indicators":{"alignment_score":number,"key_conflicts":[string],"valuation_rationale":string,"risk_factors":[string],"catalyst_timeline":[{"event":string,"window":string,"why":string}]},"explanation":"300-500字"}],"consensus_view":{"summary":string,"agreement_ratio":number},"action":{"rating":"BUY|HOLD|SELL","target_price":number,"stop_loss":number,"confidence":"high|medium|low","valuation_gap":{"vs_price_pct":number,"narrative":string},"target_band":{"upper_pct":number,"lower_pct":number,"reason":string},"re_rating_triggers":[string],"rationale":string},"profile":{"segment":"large_cap|small_cap","segment_label":string,"summary":string,"filters":{"total":8,"met":number,"items":[{"name":string,"met":boolean,"reason":string}]},"score":number,"score_detail":[{"category":string,"points":number,"reason":string}],"catalysts":[string]},"news_insight":{"summary":string,"impact":"正面|中性|負面","key_events":[{"title":string,"why":string}]}}',
   'payload.valuation 提供現價、52 週高低、EV/EBITDA、PEG、beta 與波動度；必須說明目標價相對現價的折溢價並填寫 action.valuation_gap。',
   'payload.signal_hints 與 guardrails 告知動能與籌碼強弱：當 severe_momentum 或 selling_pressure 為 true、或 signal_hints 提示「動能/籌碼弱勢」，action.target_price 必須限制在現價 ±25% 內，除非你在 valuation_gap.narrative 中完整論證，且 rationale 必須標註理由。',
+  '若評級為 SELL，需明確說明預期下跌幅度與觸發條件；若評級為 HOLD，需輸出 action.target_band（upper_pct 與 lower_pct）並解釋區間理由，同時在 action.re_rating_triggers 提供至少兩項具體監控條件（如營收/動能門檻或價格突破 band 時間點）。',
   '請綜合 SEC MD&A 摘要、分析師/目標價資料、新聞情緒、動能與 ETF 參考，評估估值、成長與風險。需完成大型股或小型股的 8 項硬性過濾（至少 6 項通過）與 100 分制打分，並給出可執行的投資建議與關鍵催化、風險。',
   '只有在 analyst_metrics.price_targets.confidence === "high" 時，才可直接引用分析師均價/區間作為 action.target_price 的主要依據；若為 "low" 或缺值，必須依現價、動能、基本面自行推估並在 rationale 說明樣本不足。',
-  '評級判準：若目標價或估值顯示上行空間 >=10% 且動能/籌碼無明顯警訊，就應給 BUY；若預期下跌 >=10% 或動能/籌碼轉弱，就給 SELL；僅當上下空間都在 ±5% 且催化互相抵銷時才可維持 HOLD。'
+  '評級判準：若目標價或估值顯示上行空間 >=10% 且動能/籌碼無明顯警訊，就應給 BUY；若預期下跌 >=10% 或動能/籌碼轉弱，就給 SELL；僅當上下空間都在允許 band 內且催化互相抵銷時才可維持 HOLD。'
 ].join('\n');
 
 const COMPLETION_TOKEN_CEILING = Number(process.env.OPENAI_COMPLETION_MAX_TOKENS || 1500);
